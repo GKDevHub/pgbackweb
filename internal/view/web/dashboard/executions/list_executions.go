@@ -114,26 +114,54 @@ func listExecutions(
 		))
 	}
 
-	if pagination.HasNextPage {
-		trs = append(trs, nodx.Tr(
-			htmx.HxGet(func() string {
-				url := "/dashboard/executions/list"
-				url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", pagination.NextPage))
-				if queryData.Database != uuid.Nil {
-					url = strutil.AddQueryParamToUrl(url, "database", queryData.Database.String())
-				}
-				if queryData.Destination != uuid.Nil {
-					url = strutil.AddQueryParamToUrl(url, "destination", queryData.Destination.String())
-				}
-				if queryData.Backup != uuid.Nil {
-					url = strutil.AddQueryParamToUrl(url, "backup", queryData.Backup.String())
-				}
-				return url
-			}()),
-			htmx.HxTrigger("intersect once"),
-			htmx.HxSwap("afterend"),
-		))
+	tableRows := component.RenderableGroup(trs)
+	paginationComp := paginationComponent(queryData, pagination)
+
+	return nodx.Group(tableRows, paginationComp)
+}
+
+func paginationComponent(
+	queryData listExecsQueryData,
+	pagination paginateutil.PaginateResponse,
+) nodx.Node {
+	if pagination.TotalPages <= 1 {
+		return nil
 	}
 
-	return component.RenderableGroup(trs)
+	buttons := []nodx.Node{}
+	for i := 1; i <= pagination.TotalPages; i++ {
+		page := i
+		buttonClass := "join-item btn"
+		if page == pagination.CurrentPage {
+			buttonClass += " btn-active"
+		}
+
+		buttons = append(buttons,
+			nodx.Button(
+				nodx.Class(buttonClass),
+				nodx.Text(fmt.Sprintf("%d", page)),
+				htmx.HxGet(func() string {
+					url := "/dashboard/executions/list"
+					url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", page))
+					if queryData.Database != uuid.Nil {
+						url = strutil.AddQueryParamToUrl(url, "database", queryData.Database.String())
+					}
+					if queryData.Destination != uuid.Nil {
+						url = strutil.AddQueryParamToUrl(url, "destination", queryData.Destination.String())
+					}
+					if queryData.Backup != uuid.Nil {
+						url = strutil.AddQueryParamToUrl(url, "backup", queryData.Backup.String())
+					}
+					return url
+				}()),
+				htmx.HxTarget("tbody"),
+				htmx.HxSwap("innerHTML"),
+			),
+		)
+	}
+
+	return nodx.Div(
+		nodx.Class("join"),
+		nodx.Group(buttons...),
+	)
 }
