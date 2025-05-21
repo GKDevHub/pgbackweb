@@ -1,5 +1,7 @@
 # Frontend Development Guide
 
+This guide helps new and existing developers understand the architecture of and contribute effectively to the frontend of this project. It covers project structure, core technologies, build processes, and common development workflows.
+
 ## Table of Contents
 1. [Project Structure](#1-project-structure)
 2. [Core Technologies](#2-core-technologies)
@@ -147,6 +149,18 @@ This section outlines the steps to set up and run the frontend development envir
     *   Using a file watcher like `denon` to automatically re-run `scripts/build-js.ts` when source files change: `denon run -A scripts/build-js.ts`.
     *   Modifying `scripts/build-js.ts` or creating a new Deno task to incorporate `esbuild`'s watch capabilities directly.
 
+**Tip for Combined Builds:** To streamline the build process for both CSS and JavaScript, you can define a combined task in your `deno.json` file. For example:
+
+```json
+// In deno.json tasks
+"scripts": {
+  "build:frontend": "deno task tailwindcss && deno run -A scripts/build-js.ts",
+  "tailwindcss": "tailwindcss --input internal/view/static/css/style.css --output internal/view/static/css/style.css", // Example, adjust if different
+  "build:js": "deno run -A scripts/build-js.ts"
+}
+```
+You could then run `deno task build:frontend` to build everything. (Note: The exact `tailwindcss` command might vary based on your project's `tailwind.config.ts` and specific needs for input/output files).
+
 ### 4.4. Running the Application
 *   This guide focuses on frontend development. For detailed instructions on compiling and running the main Go application, please refer to the project's root [README.md](README.md) or other backend-specific documentation.
 *   Typically, running the Go application might involve commands such as:
@@ -171,7 +185,7 @@ This section describes the typical workflow for implementing frontend changes.
 *   Tailwind CSS classes are applied directly within the Go code that generates the HTML. To change styling, you will add or modify these classes within the `.go` files.
 *   After making any modifications to `.go` files, you must rebuild and restart the Go application to see the changes reflected in the browser. The method for rebuilding and restarting will depend on your specific Go development setup (e.g., `go run ...`, `task start`, or a live-reloading tool for Go).
 
-### 5.2. Making Changes to JavaScript
+### 5.2. Modifying JavaScript Files
 
 *   **Global JavaScript:**
     *   For JavaScript logic that needs to be available across the entire application, or for defining new global utility functions, edit the main JavaScript file: `internal/view/static/js/app.js`.
@@ -184,7 +198,7 @@ This section describes the typical workflow for implementing frontend changes.
         ```
     *   For a more efficient development workflow, consider using a watch mode as described in Section 4.3 to automatically rebuild assets on change.
 
-### 5.3. Making Changes to CSS
+### 5.3. Modifying CSS Styles
 
 *   **Tailwind CSS:**
     *   The vast majority of styling changes should be achieved by adding, removing, or modifying Tailwind CSS utility classes. These classes are applied directly in the Go files that generate the HTML markup.
@@ -244,22 +258,22 @@ Then, create the handler function (e.g., in `internal/view/web/dashboard/status/
 package status // Or your relevant package
 
 import (
-	"net/http"
-	// Assuming you use Echo or a similar framework
-	"github.com/labstack/echo/v4"
-	// Your rendering package/module if you have one
-	// "yourapp/internal/view/component"
+  "net/http"
+  // Assuming you use Echo or a similar framework
+  "github.com/labstack/echo/v4"
+  // Your rendering package/module if you have one
+  // "yourapp/internal/view/component"
 )
 
 // ShowStatusPage handles the request for the status page.
 func ShowStatusPage(c echo.Context) error {
-	// data := make(map[string]interface{})
-	// data["Title"] = "System Status"
-	// In a real scenario, you would pass data to a template or component renderer.
-	// For now, let's imagine a simple HTML response or a call to a rendering component.
-	return c.String(http.StatusOK, "<h1>System Status Page</h1><p>Everything is awesome!</p>")
-	// Or, if using a template/component system:
-	// return component.Render(c, component.StatusPage(data))
+  // data := make(map[string]interface{})
+  // data["Title"] = "System Status"
+  // In a real scenario, you would pass data to a template or component renderer.
+  // For now, let's imagine a simple HTML response or a call to a rendering component.
+  return c.String(http.StatusOK, "<h1>System Status Page</h1><p>Everything is awesome!</p>")
+  // Or, if using a template/component system:
+  // return component.Render(c, component.StatusPage(data))
 }
 ```
 This example uses Echo-like syntax. Adapt as necessary for the project's specific routing and templating setup. Remember to also create the corresponding HTML generation logic within your handler or called components.
