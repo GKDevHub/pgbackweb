@@ -128,21 +128,61 @@ func paginationComponent(
 		return nil
 	}
 
+	windowSize := 2 // Show 2 pages before and 2 after current page
 	buttons := []nodx.Node{}
-	for i := 1; i <= pagination.TotalPages; i++ {
-		page := i
-		buttonClass := "join-item btn"
-		if page == pagination.CurrentPage {
-			buttonClass += " btn-active"
+	pagesShown := make(map[int]bool)
+
+	// Helper function to create a button node
+	// isCurrent: is this button for the current page?
+	// isPlaceholder: is this an ellipsis button?
+	// totalPages: used for aria-label on "Last" button
+	createPageButtonNode := func(text string, pageNum int, isPlaceholder bool, isCurrent bool, totalPages int) nodx.Node {
+		btnClass := "join-item btn"
+		if isCurrent && !isPlaceholder {
+			btnClass += " btn-active"
+		}
+		
+		isInteractive := !isPlaceholder && !isCurrent
+		if !isInteractive {
+			btnClass += " btn-disabled"
 		}
 
-		buttons = append(buttons,
-			nodx.Button(
-				nodx.Class(buttonClass),
-				nodx.Text(fmt.Sprintf("%d", page)),
+		attrs := []nodx.Node{nodx.Class(btnClass)}
+
+		// ARIA Label
+		var ariaLabel string
+		if text == "First" {
+			ariaLabel = "Go to first page"
+		} else if text == "Last" {
+			ariaLabel = fmt.Sprintf("Go to last page, page %d", totalPages)
+		} else if isPlaceholder {
+			ariaLabel = "Skipped pages"
+		} else {
+			ariaLabel = fmt.Sprintf("Go to page %d", pageNum)
+		}
+		attrs = append(attrs, nodx.Attr("aria-label", ariaLabel))
+
+		// ARIA Current
+		if isCurrent && !isPlaceholder {
+			attrs = append(attrs, nodx.Attr("aria-current", "page"))
+		}
+		
+		// Standard HTML disabled attribute for non-interactive buttons
+		if !isInteractive {
+			attrs = append(attrs, nodx.Attr("disabled", "true"))
+		}
+
+		if isPlaceholder {
+			attrs = append(attrs, nodx.Text("..."))
+		} else {
+			attrs = append(attrs, nodx.Text(text))
+		}
+
+		if isInteractive {
+			attrs = append(attrs,
 				htmx.HxGet(func() string {
 					url := "/dashboard/executions/list"
-					url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", page))
+					url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", pageNum))
 					if queryData.Database != uuid.Nil {
 						url = strutil.AddQueryParamToUrl(url, "database", queryData.Database.String())
 					}
@@ -156,12 +196,72 @@ func paginationComponent(
 				}()),
 				htmx.HxTarget("tbody"),
 				htmx.HxSwap("innerHTML"),
-			),
-		)
+			)
+		}
+		return nodx.Button(attrs...)
+	}
+
+	// 1. "First" Button
+	buttons = append(buttons, createPageButtonNode("First", 1, false, pagination.CurrentPage == 1, pagination.TotalPages))
+	pagesShown[1] = true
+
+	// 2. Window and Ellipses
+	leftWindowBound := pagination.CurrentPage - windowSize
+	rightWindowBound := pagination.CurrentPage + windowSize
+
+	// Left Ellipsis
+	// Show ellipsis if the window starts after page 2 (i.e., page 1, then ..., then window)
+	if leftWindowBound > 2 {
+		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages))
+	}
+
+	// Window Pages
+	for page := leftWindowBound; page <= rightWindowBound; page++ {
+		// Only show valid pages that are not First or Last (those are handled separately)
+		// and are within the overall page range.
+		if page > 1 && page < pagination.TotalPages && page >= 1 {
+			if !pagesShown[page] {
+				buttons = append(buttons, createPageButtonNode(fmt.Sprintf("%d", page), page, false, page == pagination.CurrentPage, pagination.TotalPages))
+				pagesShown[page] = true
+			}
+		}
+	}
+
+	// Right Ellipsis
+	// Show ellipsis if the window ends before (TotalPages - 1)
+	if rightWindowBound < pagination.TotalPages-1 {
+		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages))
+	}
+
+	// 3. "Last" Button
+	// Add if TotalPages > 1 (to avoid duplicating page 1 if it's the only page)
+	// and if it hasn't been shown already (e.g., if CurrentPage is near TotalPages)
+	if pagination.TotalPages > 1 {
+		if !pagesShown[pagination.TotalPages] {
+			buttons = append(buttons, createPageButtonNode("Last", pagination.TotalPages, false, pagination.CurrentPage == pagination.TotalPages, pagination.TotalPages))
+			// pagesShown[pagination.TotalPages] = true // Not strictly necessary for the last item
+		}
 	}
 
 	return nodx.Div(
 		nodx.Class("join"),
+		nodx.Attr("aria-label", "Pagination navigation"),
 		nodx.Group(buttons...),
 	)
+}
+
+// max returns the larger of x or y.
+func max(x, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}
+
+// min returns the smaller of x or y.
+func min(x, y int) int {
+	if x > y {
+		return y
+	}
+	return x
 }
