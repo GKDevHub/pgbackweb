@@ -120,6 +120,80 @@ func listExecutions(
 	return nodx.Group(tableRows, paginationComp)
 }
 
+const defaultPaginationWindowSize = 2
+
+// createPageButtonNode is a helper function to create a pagination button.
+// text: Text content of the button (e.g., "1", "First", "Last").
+// pageNum: The page number this button links to. For placeholders, this can be 0.
+// isPlaceholder: True if this button is an ellipsis ("...").
+// isCurrent: True if this button represents the current active page.
+// totalPages: Total number of pages, used for ARIA label on "Last" button.
+// queryData: Used to construct HxGet URL with existing filters.
+func createPageButtonNode(text string, pageNum int, isPlaceholder bool, isCurrent bool, totalPages int, queryData listExecsQueryData) nodx.Node {
+	btnClass := "join-item btn"
+	if isCurrent && !isPlaceholder {
+		btnClass += " btn-active"
+	}
+
+	isInteractive := !isPlaceholder && !isCurrent
+	if !isInteractive {
+		btnClass += " btn-disabled"
+	}
+
+	attrs := []nodx.Node{nodx.Class(btnClass)}
+
+	// ARIA Label
+	var ariaLabel string
+	if text == "First" {
+		ariaLabel = "Go to first page"
+	} else if text == "Last" {
+		ariaLabel = fmt.Sprintf("Go to last page, page %d", totalPages)
+	} else if isPlaceholder {
+		ariaLabel = "Skipped pages"
+	} else {
+		ariaLabel = fmt.Sprintf("Go to page %d", pageNum)
+	}
+	attrs = append(attrs, nodx.Attr("aria-label", ariaLabel))
+
+	// ARIA Current
+	if isCurrent && !isPlaceholder {
+		attrs = append(attrs, nodx.Attr("aria-current", "page"))
+	}
+
+	// Standard HTML disabled attribute for non-interactive buttons
+	if !isInteractive {
+		attrs = append(attrs, nodx.Attr("disabled", "true"))
+	}
+
+	if isPlaceholder {
+		attrs = append(attrs, nodx.Text("..."))
+	} else {
+		attrs = append(attrs, nodx.Text(text))
+	}
+
+	if isInteractive {
+		attrs = append(attrs,
+			htmx.HxGet(func() string {
+				url := "/dashboard/executions/list"
+				url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", pageNum))
+				if queryData.Database != uuid.Nil {
+					url = strutil.AddQueryParamToUrl(url, "database", queryData.Database.String())
+				}
+				if queryData.Destination != uuid.Nil {
+					url = strutil.AddQueryParamToUrl(url, "destination", queryData.Destination.String())
+				}
+				if queryData.Backup != uuid.Nil {
+					url = strutil.AddQueryParamToUrl(url, "backup", queryData.Backup.String())
+				}
+				return url
+			}()),
+			htmx.HxTarget("tbody"),
+			htmx.HxSwap("innerHTML"),
+		)
+	}
+	return nodx.Button(attrs...)
+}
+
 func paginationComponent(
 	queryData listExecsQueryData,
 	pagination paginateutil.PaginateResponse,
@@ -128,91 +202,21 @@ func paginationComponent(
 		return nil
 	}
 
-	windowSize := 2 // Show 2 pages before and 2 after current page
 	buttons := []nodx.Node{}
 	pagesShown := make(map[int]bool)
 
-	// Helper function to create a button node
-	// isCurrent: is this button for the current page?
-	// isPlaceholder: is this an ellipsis button?
-	// totalPages: used for aria-label on "Last" button
-	createPageButtonNode := func(text string, pageNum int, isPlaceholder bool, isCurrent bool, totalPages int) nodx.Node {
-		btnClass := "join-item btn"
-		if isCurrent && !isPlaceholder {
-			btnClass += " btn-active"
-		}
-		
-		isInteractive := !isPlaceholder && !isCurrent
-		if !isInteractive {
-			btnClass += " btn-disabled"
-		}
-
-		attrs := []nodx.Node{nodx.Class(btnClass)}
-
-		// ARIA Label
-		var ariaLabel string
-		if text == "First" {
-			ariaLabel = "Go to first page"
-		} else if text == "Last" {
-			ariaLabel = fmt.Sprintf("Go to last page, page %d", totalPages)
-		} else if isPlaceholder {
-			ariaLabel = "Skipped pages"
-		} else {
-			ariaLabel = fmt.Sprintf("Go to page %d", pageNum)
-		}
-		attrs = append(attrs, nodx.Attr("aria-label", ariaLabel))
-
-		// ARIA Current
-		if isCurrent && !isPlaceholder {
-			attrs = append(attrs, nodx.Attr("aria-current", "page"))
-		}
-		
-		// Standard HTML disabled attribute for non-interactive buttons
-		if !isInteractive {
-			attrs = append(attrs, nodx.Attr("disabled", "true"))
-		}
-
-		if isPlaceholder {
-			attrs = append(attrs, nodx.Text("..."))
-		} else {
-			attrs = append(attrs, nodx.Text(text))
-		}
-
-		if isInteractive {
-			attrs = append(attrs,
-				htmx.HxGet(func() string {
-					url := "/dashboard/executions/list"
-					url = strutil.AddQueryParamToUrl(url, "page", fmt.Sprintf("%d", pageNum))
-					if queryData.Database != uuid.Nil {
-						url = strutil.AddQueryParamToUrl(url, "database", queryData.Database.String())
-					}
-					if queryData.Destination != uuid.Nil {
-						url = strutil.AddQueryParamToUrl(url, "destination", queryData.Destination.String())
-					}
-					if queryData.Backup != uuid.Nil {
-						url = strutil.AddQueryParamToUrl(url, "backup", queryData.Backup.String())
-					}
-					return url
-				}()),
-				htmx.HxTarget("tbody"),
-				htmx.HxSwap("innerHTML"),
-			)
-		}
-		return nodx.Button(attrs...)
-	}
-
 	// 1. "First" Button
-	buttons = append(buttons, createPageButtonNode("First", 1, false, pagination.CurrentPage == 1, pagination.TotalPages))
+	buttons = append(buttons, createPageButtonNode("First", 1, false, pagination.CurrentPage == 1, pagination.TotalPages, queryData))
 	pagesShown[1] = true
 
 	// 2. Window and Ellipses
-	leftWindowBound := pagination.CurrentPage - windowSize
-	rightWindowBound := pagination.CurrentPage + windowSize
+	leftWindowBound := pagination.CurrentPage - defaultPaginationWindowSize
+	rightWindowBound := pagination.CurrentPage + defaultPaginationWindowSize
 
 	// Left Ellipsis
 	// Show ellipsis if the window starts after page 2 (i.e., page 1, then ..., then window)
 	if leftWindowBound > 2 {
-		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages))
+		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages, queryData))
 	}
 
 	// Window Pages
@@ -221,7 +225,7 @@ func paginationComponent(
 		// and are within the overall page range.
 		if page > 1 && page < pagination.TotalPages && page >= 1 {
 			if !pagesShown[page] {
-				buttons = append(buttons, createPageButtonNode(fmt.Sprintf("%d", page), page, false, page == pagination.CurrentPage, pagination.TotalPages))
+				buttons = append(buttons, createPageButtonNode(fmt.Sprintf("%d", page), page, false, page == pagination.CurrentPage, pagination.TotalPages, queryData))
 				pagesShown[page] = true
 			}
 		}
@@ -230,17 +234,14 @@ func paginationComponent(
 	// Right Ellipsis
 	// Show ellipsis if the window ends before (TotalPages - 1)
 	if rightWindowBound < pagination.TotalPages-1 {
-		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages))
+		buttons = append(buttons, createPageButtonNode("...", 0, true, false, pagination.TotalPages, queryData))
 	}
 
 	// 3. "Last" Button
-	// Add if TotalPages > 1 (to avoid duplicating page 1 if it's the only page)
-	// and if it hasn't been shown already (e.g., if CurrentPage is near TotalPages)
+	// Add if TotalPages > 1. The pagesShown check is not needed because the window loop
+	// (page > 1 && page < pagination.TotalPages) ensures "Last" is never part of it.
 	if pagination.TotalPages > 1 {
-		if !pagesShown[pagination.TotalPages] {
-			buttons = append(buttons, createPageButtonNode("Last", pagination.TotalPages, false, pagination.CurrentPage == pagination.TotalPages, pagination.TotalPages))
-			// pagesShown[pagination.TotalPages] = true // Not strictly necessary for the last item
-		}
+		buttons = append(buttons, createPageButtonNode("Last", pagination.TotalPages, false, pagination.CurrentPage == pagination.TotalPages, pagination.TotalPages, queryData))
 	}
 
 	return nodx.Div(
@@ -249,4 +250,3 @@ func paginationComponent(
 		nodx.Group(buttons...),
 	)
 }
-
