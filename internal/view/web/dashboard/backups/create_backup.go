@@ -1,6 +1,7 @@
 package backups
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -17,6 +18,24 @@ import (
 	htmx "github.com/nodxdev/nodxgo-htmx"
 	lucide "github.com/nodxdev/nodxgo-lucide"
 )
+
+type CreateBackupFormValues struct {
+	DatabaseID     string // UUID as string
+	DestinationID  string // UUID as string, empty if not set
+	IsLocal        string // "true" or "false"
+	Name           string
+	CronExpression string
+	TimeZone       string
+	IsActive       string // "true" or "false"
+	DestDir        string
+	RetentionDays  string // int16 as string
+	OptDataOnly    string // "true" or "false"
+	OptSchemaOnly  string // "true" or "false"
+	OptClean       string // "true" or "false"
+	OptIfExists    string // "true" or "false"
+	OptCreate      string // "true" or "false"
+	OptNoComments  string // "true" or "false"
+}
 
 func (h *handlers) createBackupHandler(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -87,31 +106,82 @@ func (h *handlers) createBackupFormHandler(c echo.Context) error {
 	}
 
 	return echoutil.RenderNodx(
-		c, http.StatusOK, createBackupForm(databases, destinations),
+		c, http.StatusOK, createBackupForm(databases, destinations, nil),
 	)
 }
 
 func createBackupForm(
 	databases []dbgen.DatabasesServiceGetAllDatabasesRow,
 	destinations []dbgen.DestinationsServiceGetAllDestinationsRow,
+	prefillData *CreateBackupFormValues,
 ) nodx.Node {
-	yesNoOptions := func() nodx.Node {
+	yesNoOptions := func(currentValue string) nodx.Node {
 		return nodx.Group(
-			nodx.Option(nodx.Value("true"), nodx.Text("Yes")),
-			nodx.Option(nodx.Value("false"), nodx.Text("No"), nodx.Selected("")),
+			nodx.Option(nodx.Value("true"), nodx.Text("Yes"), nodx.If(currentValue == "true", nodx.Selected(""))),
+			nodx.Option(nodx.Value("false"), nodx.Text("No"), nodx.If(currentValue == "false" || currentValue == "", nodx.Selected(""))),
 		)
 	}
 
 	serverTZ := time.Now().Location().String()
+
+	isLocalValue := "false"
+	if prefillData != nil && prefillData.IsLocal != "" {
+		isLocalValue = prefillData.IsLocal
+	}
+
+	nameValue := ""
+	if prefillData != nil {
+		nameValue = prefillData.Name
+	}
+	cronExpressionValue := ""
+	if prefillData != nil {
+		cronExpressionValue = prefillData.CronExpression
+	}
+	destDirValue := ""
+	if prefillData != nil {
+		destDirValue = prefillData.DestDir
+	}
+	retentionDaysValue := ""
+	if prefillData != nil {
+		retentionDaysValue = prefillData.RetentionDays
+	}
+
+	isActiveValue := "true" // Default for new forms
+	if prefillData != nil {
+		isActiveValue = "false" // Default for prefilled forms (duplicate task)
+	}
+
+	optDataOnlyValue := "false"
+	if prefillData != nil && prefillData.OptDataOnly != "" {
+		optDataOnlyValue = prefillData.OptDataOnly
+	}
+	optSchemaOnlyValue := "false"
+	if prefillData != nil && prefillData.OptSchemaOnly != "" {
+		optSchemaOnlyValue = prefillData.OptSchemaOnly
+	}
+	optCleanValue := "false"
+	if prefillData != nil && prefillData.OptClean != "" {
+		optCleanValue = prefillData.OptClean
+	}
+	optIfExistsValue := "false"
+	if prefillData != nil && prefillData.OptIfExists != "" {
+		optIfExistsValue = prefillData.OptIfExists
+	}
+	optCreateValue := "false"
+	if prefillData != nil && prefillData.OptCreate != "" {
+		optCreateValue = prefillData.OptCreate
+	}
+	optNoCommentsValue := "false"
+	if prefillData != nil && prefillData.OptNoComments != "" {
+		optNoCommentsValue = prefillData.OptNoComments
+	}
 
 	return nodx.FormEl(
 		htmx.HxPost("/dashboard/backups"),
 		htmx.HxDisabledELT("find button"),
 		nodx.Class("space-y-2 text-base"),
 
-		alpine.XData(`{
-			is_local: "false",
-		}`),
+		alpine.XData(fmt.Sprintf(`{ is_local: "%s" }`, isLocalValue)),
 
 		component.InputControl(component.InputControlParams{
 			Name:        "name",
@@ -119,6 +189,9 @@ func createBackupForm(
 			Placeholder: "My backup",
 			Required:    true,
 			Type:        component.InputTypeText,
+			Children: []nodx.Node{
+				nodx.If(nameValue != "", nodx.Value(nameValue)),
+			},
 		}),
 
 		component.SelectControl(component.SelectControlParams{
@@ -130,7 +203,12 @@ func createBackupForm(
 				nodx.Map(
 					databases,
 					func(db dbgen.DatabasesServiceGetAllDatabasesRow) nodx.Node {
-						return nodx.Option(nodx.Value(db.ID.String()), nodx.Text(db.Name))
+						selected := false
+						if prefillData != nil && prefillData.DatabaseID != "" &&
+							db.ID.String() == prefillData.DatabaseID {
+							selected = true
+						}
+						return nodx.Option(nodx.Value(db.ID.String()), nodx.Text(db.Name), nodx.If(selected, nodx.Selected("")))
 					},
 				),
 			},
@@ -142,8 +220,8 @@ func createBackupForm(
 			Required: true,
 			Children: []nodx.Node{
 				alpine.XModel("is_local"),
-				nodx.Option(nodx.Value("true"), nodx.Text("Yes")),
-				nodx.Option(nodx.Value("false"), nodx.Text("No"), nodx.Selected("")),
+				nodx.Option(nodx.Value("true"), nodx.Text("Yes"), nodx.If(isLocalValue == "true", nodx.Selected(""))),
+				nodx.Option(nodx.Value("false"), nodx.Text("No"), nodx.If(isLocalValue == "false", nodx.Selected(""))),
 			},
 			HelpButtonChildren: localBackupsHelp(),
 		}),
@@ -159,7 +237,12 @@ func createBackupForm(
 					nodx.Map(
 						destinations,
 						func(dest dbgen.DestinationsServiceGetAllDestinationsRow) nodx.Node {
-							return nodx.Option(nodx.Value(dest.ID.String()), nodx.Text(dest.Name))
+							selected := false
+							if prefillData != nil && prefillData.DestinationID != "" &&
+								dest.ID.String() == prefillData.DestinationID {
+								selected = true
+							}
+							return nodx.Option(nodx.Value(dest.ID.String()), nodx.Text(dest.Name), nodx.If(selected, nodx.Selected("")))
 						},
 					),
 				},
@@ -175,6 +258,9 @@ func createBackupForm(
 			HelpText:           "The cron expression to schedule the backup",
 			Pattern:            `^\S+\s+\S+\s+\S+\s+\S+\s+\S+$`,
 			HelpButtonChildren: cronExpressionHelp(),
+			Children: []nodx.Node{
+				nodx.If(cronExpressionValue != "", nodx.Value(cronExpressionValue)),
+			},
 		}),
 
 		component.SelectControl(component.SelectControlParams{
@@ -186,12 +272,17 @@ func createBackupForm(
 				nodx.Map(
 					staticdata.Timezones,
 					func(tz staticdata.Timezone) nodx.Node {
-						var selected nodx.Node
-						if tz.TzCode == serverTZ {
-							selected = nodx.Selected("")
+						selected := false
+						if prefillData != nil && prefillData.TimeZone != "" {
+							if tz.TzCode == prefillData.TimeZone {
+								selected = true
+							}
+						} else {
+							if tz.TzCode == serverTZ {
+								selected = true
+							}
 						}
-
-						return nodx.Option(nodx.Value(tz.TzCode), nodx.Text(tz.Label), selected)
+						return nodx.Option(nodx.Value(tz.TzCode), nodx.Text(tz.Label), nodx.If(selected, nodx.Selected("")))
 					},
 				),
 			},
@@ -207,6 +298,9 @@ func createBackupForm(
 			HelpText:           "Relative to the base directory of the destination",
 			Pattern:            `^\/\S*[^\/]$`,
 			HelpButtonChildren: destinationDirectoryHelp(),
+			Children: []nodx.Node{
+				nodx.If(destDirValue != "", nodx.Value(destDirValue)),
+			},
 		}),
 
 		component.InputControl(component.InputControlParams{
@@ -220,6 +314,7 @@ func createBackupForm(
 			Children: []nodx.Node{
 				nodx.Min("0"),
 				nodx.Max("36500"),
+				nodx.If(retentionDaysValue != "", nodx.Value(retentionDaysValue)),
 			},
 		}),
 
@@ -228,8 +323,8 @@ func createBackupForm(
 			Label:    "Activate backup",
 			Required: true,
 			Children: []nodx.Node{
-				nodx.Option(nodx.Value("true"), nodx.Text("Yes")),
-				nodx.Option(nodx.Value("false"), nodx.Text("No")),
+				nodx.Option(nodx.Value("true"), nodx.Text("Yes"), nodx.If(isActiveValue == "true", nodx.Selected(""))),
+				nodx.Option(nodx.Value("false"), nodx.Text("No"), nodx.If(isActiveValue == "false", nodx.Selected(""))),
 			},
 		}),
 
@@ -252,7 +347,7 @@ func createBackupForm(
 					Label:    "--data-only",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optDataOnlyValue),
 					},
 				}),
 
@@ -261,7 +356,7 @@ func createBackupForm(
 					Label:    "--schema-only",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optSchemaOnlyValue),
 					},
 				}),
 
@@ -270,7 +365,7 @@ func createBackupForm(
 					Label:    "--clean",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optCleanValue),
 					},
 				}),
 
@@ -279,7 +374,7 @@ func createBackupForm(
 					Label:    "--if-exists",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optIfExistsValue),
 					},
 				}),
 
@@ -288,7 +383,7 @@ func createBackupForm(
 					Label:    "--create",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optCreateValue),
 					},
 				}),
 
@@ -297,7 +392,7 @@ func createBackupForm(
 					Label:    "--no-comments",
 					Required: true,
 					Children: []nodx.Node{
-						yesNoOptions(),
+						yesNoOptions(optNoCommentsValue),
 					},
 				}),
 			),
