@@ -23,7 +23,7 @@ func MountRouter(
 	parent.GET("/list", h.listBackupsHandler)
 	parent.GET("/create-form", h.createBackupFormHandler)
 	parent.POST("", h.createBackupHandler)
-	parent.GET("/duplicate-form/:backupID", h.getDuplicateBackupFormHandler, mids.RequireAuth())
+	parent.GET("/duplicate-form/:backupID", h.getDuplicateBackupFormHandler, mids.RequireAuth)
 	parent.DELETE("/:backupID", h.deleteBackupHandler)
 	parent.POST("/:backupID/edit", h.editBackupHandler)
 	parent.POST("/:backupID/run", h.manualRunHandler)

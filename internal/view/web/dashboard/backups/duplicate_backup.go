@@ -96,3 +96,9 @@ func duplicateBackupButton(backupID uuid.UUID) nodx.Node {
 	// Return both the modal structure (initially hidden) and the button that opens it
 	return nodx.Group(mo.HTML, dropdownButton)
 }
+
+func (h *handlers) duplicateBackupHandler(c echo.Context) error {
+	// This handler is obsolete and its route should have been removed.
+	// Returning NotImplemented as a safety measure if somehow called.
+	return c.String(http.StatusNotImplemented, "This functionality has been updated. Please use the new duplicate button behavior.")
+}
